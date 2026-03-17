@@ -188,9 +188,10 @@ function detectAndParse(content, filename) {
 }
 
 /* ─── Core dedup ─────────────────────────────────── */
-// Report progress every N records so the main thread progress bar
-// advances in small, real steps tied to actual computation.
-const YIELD_EVERY = 50;
+// Progress is reported every N records. RAF on the main thread handles
+// visual smoothness between reports, so this doesn't need to be tiny.
+// Too low (e.g. 50) floods the main-thread message queue and blocks clicks.
+const YIELD_EVERY = 200;
 
 function processFile(records, masterSeenDois, masterSeenTitles, masterUniqueList, auditLog, fT, yT, fileName, fileIdx, totalFiles) {
   const localUnique = [];

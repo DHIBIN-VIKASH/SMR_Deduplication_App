@@ -498,20 +498,24 @@ async function runDeduplication() {
   let rafId = null;
   let smoothPct  = 5;   // current displayed %
   let ceilingPct = 10;  // max we allow before next worker update
+  let rafFrame   = 0;   // frame counter for DOM throttle
 
   progressBar.classList.add("processing");
 
   function tickProgress() {
-    // Ease toward the ceiling — fast at first, slows as we approach it
+    rafFrame++;
+    // Only write to DOM every 3rd frame (~20fps) to avoid layout thrashing.
+    // The math still runs every frame for accuracy.
     const gap = ceilingPct - smoothPct;
-    smoothPct += Math.max(gap * 0.012, 0.04);   // min 0.04%/frame so it never stops
+    smoothPct += Math.max(gap * 0.012, 0.03);
     smoothPct  = Math.min(smoothPct, ceilingPct);
-    progressBar.style.width = smoothPct.toFixed(2) + "%";
+    if (rafFrame % 3 === 0) {
+      progressBar.style.width = smoothPct.toFixed(1) + "%";
+    }
     rafId = requestAnimationFrame(tickProgress);
   }
 
   function advanceCeiling(reportedPct) {
-    // Worker told us a real %. Raise ceiling to at least that value.
     if (reportedPct > ceilingPct) ceilingPct = Math.min(reportedPct, 97);
   }
 
@@ -519,8 +523,6 @@ async function runDeduplication() {
     cancelAnimationFrame(rafId);
     rafId = null;
     progressBar.classList.remove("processing");
-    // Snap smoothly to 100%
-    smoothPct = 100;
     progressBar.style.width = "100%";
   }
 

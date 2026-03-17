@@ -491,23 +491,58 @@ async function runDeduplication() {
     transferBuffers   // ownership transferred — no blocking copy
   );
 
+  // ── Smooth progress bar animator ───────────────────────────────────────
+  // The Worker posts discrete events, but between them the bar would sit
+  // completely still. This RAF loop drifts the bar forward continuously,
+  // decelerating toward a ceiling that the Worker moves up in real time.
+  let rafId = null;
+  let smoothPct  = 5;   // current displayed %
+  let ceilingPct = 10;  // max we allow before next worker update
+
+  progressBar.classList.add("processing");
+
+  function tickProgress() {
+    // Ease toward the ceiling — fast at first, slows as we approach it
+    const gap = ceilingPct - smoothPct;
+    smoothPct += Math.max(gap * 0.012, 0.04);   // min 0.04%/frame so it never stops
+    smoothPct  = Math.min(smoothPct, ceilingPct);
+    progressBar.style.width = smoothPct.toFixed(2) + "%";
+    rafId = requestAnimationFrame(tickProgress);
+  }
+
+  function advanceCeiling(reportedPct) {
+    // Worker told us a real %. Raise ceiling to at least that value.
+    if (reportedPct > ceilingPct) ceilingPct = Math.min(reportedPct, 97);
+  }
+
+  function finishProgress() {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+    progressBar.classList.remove("processing");
+    // Snap smoothly to 100%
+    smoothPct = 100;
+    progressBar.style.width = "100%";
+  }
+
+  rafId = requestAnimationFrame(tickProgress);
+  // ───────────────────────────────────────────────────────────────────────
+
   worker.onmessage = async (e) => {
     const msg = e.data;
 
     if (msg.type === "log" || msg.type === "progress") {
       if (msg.msg) log(msg.msg, msg.level || "");
-      if (msg.progress != null)
-        progressBar.style.width = Math.max(5, Math.min(98, msg.progress)).toFixed(1) + "%";
+      if (msg.progress != null) advanceCeiling(msg.progress);
     }
 
     if (msg.type === "done") {
       worker.terminate();
+      finishProgress();
 
       state.auditLog            = msg.auditLog;
       state.deduplicatedRecords = msg.deduplicatedRecords;
       state.results             = { sessionName, timestamp: new Date().toISOString(), ...msg.results };
 
-      progressBar.style.width = "100%";
       const r = state.results;
       log(`✅ Done! ${r.totalInput} in → ${r.totalUnique} unique, ${r.totalRemoved} removed, ${r.totalFlagged} flagged.`, "success");
 
@@ -527,6 +562,7 @@ async function runDeduplication() {
 
   worker.onerror = (e) => {
     worker.terminate();
+    finishProgress();
     log("❌ Worker error: " + e.message, "error");
     setStatus("error", "Error");
     btnRun.disabled = false;

@@ -188,9 +188,9 @@ function detectAndParse(content, filename) {
 }
 
 /* ─── Core dedup ─────────────────────────────────── */
-// Yield control periodically so the worker doesn't hog the thread either.
-// (Useful for very large datasets)
-const YIELD_EVERY = 500; // records
+// Report progress every N records so the main thread progress bar
+// advances in small, real steps tied to actual computation.
+const YIELD_EVERY = 50;
 
 function processFile(records, masterSeenDois, masterSeenTitles, masterUniqueList, auditLog, fT, yT, fileName, fileIdx, totalFiles) {
   const localUnique = [];

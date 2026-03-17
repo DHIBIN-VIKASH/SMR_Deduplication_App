@@ -255,7 +255,14 @@ function processFile(records, masterSeenDois, masterSeenTitles, masterUniqueList
 
 /* ─── Main message handler ───────────────────────── */
 self.onmessage = function(e) {
-  const { fileData, fuzzyThreshold, yearThreshold } = e.data;
+  const { fuzzyThreshold, yearThreshold } = e.data;
+
+  // Decode Transferable ArrayBuffers → strings (zero-copy receive)
+  const decoder = new TextDecoder();
+  const fileData = e.data.fileData.map(({ name, buf }) => ({
+    name,
+    content: decoder.decode(buf)
+  }));
 
   const auditLog = [];
   const masterSeenDois   = new Set();
@@ -293,20 +300,22 @@ self.onmessage = function(e) {
     allFlagged.push(...flagged);
     fileResults.push({ name, format: label, total: records.length, unique: localUnique.length, removed: skipped, flagged: flagged.length });
 
-    // Serialize records for transfer (strip class methods — plain objects only)
+    // Serialize records for transfer — strip heavy/redundant fields
+    // to minimize structured-clone time on the return journey.
+    // normalizedTitle is derivable; extraData only needed for CSV.
     deduplicatedRecords.push({
       name, format: label,
       records: localUnique.map(r => ({
-        sourceFile:      r.sourceFile,
-        originalText:    r.originalText,
-        pmid:            r.pmid,
-        doi:             r.doi,
-        title:           r.title,
-        normalizedTitle: r.normalizedTitle,
-        authors:         r.authors,
-        year:            r.year,
-        extraData:       r.extraData,
-        format:          r.format
+        sourceFile:   r.sourceFile,
+        originalText: r.originalText,
+        pmid:         r.pmid,
+        doi:          r.doi,
+        title:        r.title,
+        authors:      r.authors,
+        year:         r.year,
+        format:       r.format,
+        // extraData only for CSV (needed to reconstruct CSV output)
+        extraData: (r.format === 'CSV' || r.format === 'WoS-Tab') ? r.extraData : undefined
       }))
     });
 

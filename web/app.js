@@ -473,11 +473,23 @@ async function runDeduplication() {
   log(`Sending ${fileData.length} file(s) to background worker…`);
   progressBar.style.width = "5%";
 
-  // ② Offload ALL computation to a Web Worker.
-  //    The main thread stays completely free — tab switching, animations,
-  //    button clicks all work normally while dedup runs in the background.
+  // ② Send file content as Transferable ArrayBuffers — ZERO-COPY.
+  //    Regular postMessage() with strings triggers a structured clone
+  //    (a synchronous main-thread copy) that causes the UI freeze.
+  //    Transferables hand ownership to the Worker instantly with no copy.
+  const encoder = new TextEncoder();
+  const transferBuffers = [];
+  const transferableFileData = fileData.map(({ name, content }) => {
+    const buf = encoder.encode(content).buffer;
+    transferBuffers.push(buf);
+    return { name, buf };
+  });
+
   const worker = new Worker("dedup-worker.js");
-  worker.postMessage({ fileData, fuzzyThreshold, yearThreshold });
+  worker.postMessage(
+    { fileData: transferableFileData, fuzzyThreshold, yearThreshold },
+    transferBuffers   // ownership transferred — no blocking copy
+  );
 
   worker.onmessage = async (e) => {
     const msg = e.data;

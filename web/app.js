@@ -1140,42 +1140,7 @@ function updateAuthUI(user) {
   }
 }
 
-async function saveSession(r) {
-  if (!firebaseReady || !db || !state.user) return;
-  try {
-    await addDoc(collection(db, "sessions"), {
-      uid: state.user.uid,
-      sessionName: r.sessionName,
-      timestamp: serverTimestamp(),
-      totalInput: r.totalInput,
-      totalUnique: r.totalUnique,
-      totalRemoved: r.totalRemoved,
-      totalFlagged: r.totalFlagged,
-      methodCounts: r.methodCounts,
-      fileNames: r.fileResults.map(f => f.name)
-    });
-    toast("☁️ Session saved to Firebase.", "success");
-  } catch(e) {
-    console.error("Firestore save error:", e);
-  }
-}
-
-async function loadHistory() {
-  if (!firebaseReady || !db || !state.user) return;
-  try {
-    const q = query(
-      collection(db, "sessions"),
-      fbWhere("uid", "==", state.user.uid),
-      orderBy("timestamp", "desc"),
-      limit(20)
-    );
-    const snap = await getDocs(q);
-    state.history = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderHistory();
-  } catch(e) {
-    console.warn("Could not load history:", e);
-  }
-}
+// End of auth-related logic
 
 function renderHistory() {
   const container = $("history-content");

@@ -936,58 +936,165 @@ function addRecentSession(r) {
 }
 
 /* ═══════════════════════════════════════════════════
-   ❿  FIREBASE AUTH & HISTORY
+   ❿  AUTH & HISTORY  (Progressive Enhancement)
+   ─────────────────────────────────────────────────
+   Storage hierarchy:
+     1. localStorage  →  always works, guest-friendly
+     2. Firestore     →  bonus when signed in + Firebase ready
+   History tab is never gated behind sign-in.
 ═══════════════════════════════════════════════════ */
+const LS_KEY = "smr_dedup_history";
+const LS_MAX = 50;   // max sessions stored locally
+
+/* ─── localStorage helpers ───────────────────────── */
+function lsLoadHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(LS_KEY) || "[]");
+  } catch { return []; }
+}
+
+function lsSaveSession(r) {
+  try {
+    const sessions = lsLoadHistory();
+    sessions.unshift({
+      id: Date.now().toString(),
+      sessionName: r.sessionName,
+      timestamp: r.timestamp,
+      totalInput: r.totalInput,
+      totalUnique: r.totalUnique,
+      totalRemoved: r.totalRemoved,
+      totalFlagged: r.totalFlagged,
+      methodCounts: r.methodCounts,
+      fileNames: r.fileResults.map(f => f.name),
+      storageType: "local"
+    });
+    localStorage.setItem(LS_KEY, JSON.stringify(sessions.slice(0, LS_MAX)));
+  } catch(e) { console.warn("localStorage save failed:", e); }
+}
+
+/* ─── Unified save: localStorage always, Firestore when possible ── */
+async function saveSession(r) {
+  // Always save locally — instant, no auth needed
+  lsSaveSession(r);
+
+  // Additionally save to Firestore if configured and signed in
+  if (firebaseReady && db && state.user) {
+    try {
+      await addDoc(collection(db, "sessions"), {
+        uid: state.user.uid,
+        sessionName: r.sessionName,
+        timestamp: serverTimestamp(),
+        totalInput: r.totalInput,
+        totalUnique: r.totalUnique,
+        totalRemoved: r.totalRemoved,
+        totalFlagged: r.totalFlagged,
+        methodCounts: r.methodCounts,
+        fileNames: r.fileResults.map(f => f.name)
+      });
+      toast("☁️ Session saved to Cloud + Local.", "success");
+    } catch(e) {
+      console.warn("Firestore save failed (saved locally):", e);
+      toast("💾 Session saved locally.", "success");
+    }
+  } else {
+    toast("💾 Session saved locally.", "success");
+  }
+
+  // Refresh history panel
+  loadHistory();
+}
+
+/* ─── Load history: Firestore if signed in, else localStorage ──── */
+async function loadHistory() {
+  if (firebaseReady && db && state.user) {
+    // Try Firestore first
+    try {
+      const q = query(
+        collection(db, "sessions"),
+        fbWhere("uid", "==", state.user.uid),
+        orderBy("timestamp", "desc"),
+        limit(50)
+      );
+      const snap = await getDocs(q);
+      const cloudSessions = snap.docs.map(d => ({
+        id: d.id, ...d.data(),
+        timestamp: d.data().timestamp?.toDate?.()?.toISOString() || new Date().toISOString(),
+        storageType: "cloud"
+      }));
+      // Merge: cloud sessions + any local ones not in cloud
+      const localSessions = lsLoadHistory();
+      const cloudIds = new Set(cloudSessions.map(s => s.sessionName + s.totalInput));
+      const uniqueLocal = localSessions.filter(s => !cloudIds.has(s.sessionName + s.totalInput));
+      state.history = [...cloudSessions, ...uniqueLocal].slice(0, 50);
+      renderHistory();
+      return;
+    } catch(e) {
+      console.warn("Firestore load failed, falling back to localStorage:", e);
+    }
+  }
+  // Fallback: localStorage
+  state.history = lsLoadHistory();
+  renderHistory();
+}
+
+/* ─── Auth UI ─────────────────────────────────────── */
 const btnAuth = $("btn-auth");
+
+// Always load local history on startup — no auth needed
+loadHistory();
 
 if (firebaseReady && auth) {
   onAuthStateChanged(auth, user => {
     state.user = user;
     updateAuthUI(user);
-    if (user) loadHistory();
+    if (user) loadHistory(); // reload with cloud data on sign-in
   });
 
   btnAuth.addEventListener("click", async () => {
     if (state.user) {
       await signOut(auth);
-      toast("👋 Signed out.", "success");
+      toast("👋 Signed out. History now shows local sessions.", "success");
+      loadHistory();
     } else {
       try {
         await signInWithPopup(auth, provider);
-        toast("✅ Signed in!", "success");
+        toast("✅ Signed in! Cloud history loaded.", "success");
       } catch(e) {
         toast("❌ Sign-in failed: " + e.message, "error");
       }
     }
   });
 } else {
-  btnAuth.textContent = "Firebase not configured";
-  btnAuth.disabled = true;
+  // Firebase not configured — show informative button, don't disable
+  btnAuth.textContent = "☁️ Enable Cloud Sync";
+  btnAuth.title = "Update firebase-config.js to enable Google sign-in and cloud history";
+  btnAuth.addEventListener("click", () => {
+    toast("ℹ️ Add Firebase config to firebase-config.js to enable cloud sync.", "warn");
+  });
 }
 
 function updateAuthUI(user) {
   const avatar = $("user-avatar");
   const name   = $("user-name");
   const status = $("user-status");
+  const badge  = $("storage-mode-badge");
 
   if (user) {
     name.textContent   = user.displayName || user.email || "User";
-    status.textContent = "Signed in";
+    status.textContent = "Cloud sync active";
     if (user.photoURL) {
       avatar.innerHTML = `<img src="${user.photoURL}" alt="avatar" />`;
     } else {
       avatar.textContent = (user.displayName || "U")[0].toUpperCase();
     }
     btnAuth.textContent = "Sign out";
+    if (badge) { badge.textContent = "☁️ Cloud"; badge.className = "storage-badge cloud"; }
   } else {
     name.textContent   = "Guest";
-    status.textContent = "Not signed in";
-    avatar.textContent = "?";
-    btnAuth.textContent = "Sign in with Google";
-    $("history-content").innerHTML = `<div class="empty-state">
-      <svg width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="#334166"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-      <p>Sign in to view your session history.</p>
-    </div>`;
+    status.textContent = "Local mode";
+    avatar.textContent = "G";
+    btnAuth.textContent = firebaseReady ? "Sign in with Google" : "☁️ Enable Cloud Sync";
+    if (badge) { badge.textContent = "💾 Local"; badge.className = "storage-badge local"; }
   }
 }
 
@@ -1033,24 +1140,41 @@ function renderHistory() {
   if (!state.history.length) {
     container.innerHTML = `<div class="empty-state">
       <svg width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="#334166"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-      <p>No sessions found. Run your first deduplication!</p>
+      <p>No sessions yet. Run your first deduplication to see history here!</p>
+      <p style="font-size:0.75rem;color:var(--text-faint)">Sessions are saved in your browser automatically. Sign in to sync across devices.</p>
     </div>`;
     return;
   }
 
-  container.innerHTML = `<div class="history-grid">
-    ${state.history.map(s => `
-      <div class="history-card" id="hc-${s.id}">
-        <div class="hc-name">${escapeHtml(s.sessionName || "Untitled Session")}</div>
-        <div class="hc-date">${s.timestamp?.toDate ? s.timestamp.toDate().toLocaleString() : "—"}</div>
-        <div class="hc-stats">
-          <div class="hc-stat"><span class="v">${(s.totalInput||0).toLocaleString()}</span><span class="k">Input</span></div>
-          <div class="hc-stat"><span class="v">${(s.totalUnique||0).toLocaleString()}</span><span class="k">Unique</span></div>
-          <div class="hc-stat"><span class="v">${(s.totalRemoved||0).toLocaleString()}</span><span class="k">Removed</span></div>
-          <div class="hc-stat"><span class="v">${(s.totalFlagged||0).toLocaleString()}</span><span class="k">Flagged</span></div>
-        </div>
-      </div>`).join("")}
-  </div>`;
+  container.innerHTML = `
+    <div class="history-mode-bar">
+      <span>${state.user ? '☁️ Showing cloud + local sessions' : '💾 Showing local sessions (sign in to sync across devices)'}</span>
+      <button class="btn-clear-history" id="btn-clear-history">Clear Local</button>
+    </div>
+    <div class="history-grid">
+      ${state.history.map(s => `
+        <div class="history-card" id="hc-${s.id}">
+          <div class="hc-top">
+            <div class="hc-name">${escapeHtml(s.sessionName || "Untitled Session")}</div>
+            <span class="hc-storage ${s.storageType === 'cloud' ? 'cloud' : 'local'}">${s.storageType === 'cloud' ? '☁️' : '💾'}</span>
+          </div>
+          <div class="hc-date">${new Date(s.timestamp).toLocaleString()}</div>
+          <div class="hc-stats">
+            <div class="hc-stat"><span class="v">${(s.totalInput||0).toLocaleString()}</span><span class="k">Input</span></div>
+            <div class="hc-stat"><span class="v">${(s.totalUnique||0).toLocaleString()}</span><span class="k">Unique</span></div>
+            <div class="hc-stat"><span class="v">${(s.totalRemoved||0).toLocaleString()}</span><span class="k">Removed</span></div>
+            <div class="hc-stat"><span class="v">${(s.totalFlagged||0).toLocaleString()}</span><span class="k">Flagged</span></div>
+          </div>
+        </div>`).join("")}
+    </div>`;
+
+  $("btn-clear-history")?.addEventListener("click", () => {
+    if (!confirm("Clear all local session history from this browser?")) return;
+    localStorage.removeItem(LS_KEY);
+    state.history = state.history.filter(s => s.storageType === "cloud");
+    renderHistory();
+    toast("🗑️ Local history cleared.", "success");
+  });
 }
 
 /* ═══════════════════════════════════════════════════

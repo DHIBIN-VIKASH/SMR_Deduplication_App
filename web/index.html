@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="SMR Deduplication Agent – Automated bibliographic deduplication for systematic reviews across PubMed, Embase, Cochrane, Scopus, and Web of Science." />
+  <title>SMR DeduplicationAgent — Systematic Review Toolkit</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+
+  <!-- Firebase SDK -->
+  <script type="module" src="firebase-config.js"></script>
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ===== SIDEBAR ===== -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <circle cx="9" cy="9" r="4.5" stroke="url(#grad1)" stroke-width="2"/>
+          <circle cx="19" cy="9" r="4.5" stroke="url(#grad1)" stroke-width="2"/>
+          <circle cx="14" cy="19" r="4.5" fill="url(#grad1)"/>
+          <path d="M13 12.5 L10 16" stroke="url(#grad1)" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M15 12.5 L18 16" stroke="url(#grad1)" stroke-width="1.5" stroke-linecap="round"/>
+          <defs>
+            <linearGradient id="grad1" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#60a5fa"/>
+              <stop offset="100%" stop-color="#a78bfa"/>
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+      <div class="logo-text">
+        <span class="logo-brand">SMR</span>
+        <span class="logo-sub">DeduplicationAgent</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-tab="dashboard" id="nav-dashboard">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+        Dashboard
+      </button>
+      <button class="nav-item" data-tab="upload" id="nav-upload">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+        Upload & Run
+      </button>
+      <button class="nav-item" data-tab="results" id="nav-results">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        Results
+      </button>
+      <button class="nav-item" data-tab="audit" id="nav-audit">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        Audit Log
+      </button>
+      <button class="nav-item" data-tab="history" id="nav-history">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        History
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-badge" id="user-badge">
+        <div class="user-avatar" id="user-avatar">?</div>
+        <div class="user-info">
+          <span class="user-name" id="user-name">Guest</span>
+          <span class="user-status" id="user-status">Not signed in</span>
+        </div>
+      </div>
+      <button class="btn-auth" id="btn-auth">Sign in with Google</button>
+    </div>
+  </aside>
+
+  <!-- ===== MAIN CONTENT ===== -->
+  <main class="main-content">
+
+    <!-- Top Bar -->
+    <header class="topbar">
+      <button class="menu-toggle" id="menu-toggle" aria-label="Toggle menu">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <div class="topbar-title" id="topbar-title">Dashboard</div>
+      <div class="topbar-actions">
+        <div class="status-pill" id="status-pill">
+          <span class="status-dot"></span>
+          <span class="status-text" id="status-text">Ready</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ===== TAB: DASHBOARD ===== -->
+    <div class="tab-panel active" id="tab-dashboard">
+      <div class="page-header">
+        <h1>Overview Dashboard</h1>
+        <p>All-time statistics from your deduplication sessions.</p>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card" id="stat-sessions">
+          <div class="stat-icon sessions-icon">
+            <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+          </div>
+          <div class="stat-body">
+            <span class="stat-value" id="dash-sessions">0</span>
+            <span class="stat-label">Sessions Run</span>
+          </div>
+        </div>
+        <div class="stat-card" id="stat-input">
+          <div class="stat-icon input-icon">
+            <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+          </div>
+          <div class="stat-body">
+            <span class="stat-value" id="dash-input">0</span>
+            <span class="stat-label">Total Input Records</span>
+          </div>
+        </div>
+        <div class="stat-card" id="stat-unique">
+          <div class="stat-icon unique-icon">
+            <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          </div>
+          <div class="stat-body">
+            <span class="stat-value" id="dash-unique">0</span>
+            <span class="stat-label">Unique Records Kept</span>
+          </div>
+        </div>
+        <div class="stat-card" id="stat-removed">
+          <div class="stat-icon removed-icon">
+            <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </div>
+          <div class="stat-body">
+            <span class="stat-value" id="dash-removed">0</span>
+            <span class="stat-label">Duplicates Removed</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart Row -->
+      <div class="chart-row">
+        <div class="glass-card chart-card">
+          <h3>Deduplication Rate</h3>
+          <div class="donut-wrapper">
+            <svg class="donut-chart" id="donut-chart" viewBox="0 0 140 140" width="160" height="160">
+              <circle class="donut-ring" cx="70" cy="70" r="54" fill="none" stroke="#1e2246" stroke-width="18"/>
+              <circle class="donut-segment-removed" id="donut-seg-removed" cx="70" cy="70" r="54" fill="none" stroke="url(#donut-grad-removed)" stroke-width="18" stroke-dasharray="0 339.3" stroke-linecap="round" transform="rotate(-90 70 70)"/>
+              <circle class="donut-segment-flagged" id="donut-seg-flagged" cx="70" cy="70" r="54" fill="none" stroke="url(#donut-grad-flagged)" stroke-width="18" stroke-dasharray="0 339.3" stroke-linecap="round" transform="rotate(-90 70 70)"/>
+              <text class="donut-label" x="70" y="65" text-anchor="middle" fill="#e0e7ff" font-size="20" font-weight="700" id="donut-pct">—</text>
+              <text x="70" y="83" text-anchor="middle" fill="#6b7db3" font-size="9">dedup rate</text>
+              <defs>
+                <linearGradient id="donut-grad-removed" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#f472b6"/>
+                  <stop offset="100%" stop-color="#a855f7"/>
+                </linearGradient>
+                <linearGradient id="donut-grad-flagged" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#fbbf24"/>
+                  <stop offset="100%" stop-color="#f97316"/>
+                </linearGradient>
+              </defs>
+            </svg>
+            <div class="donut-legend">
+              <div class="legend-item"><span class="legend-dot" style="background: linear-gradient(135deg,#f472b6,#a855f7)"></span>Removed</div>
+              <div class="legend-item"><span class="legend-dot" style="background: linear-gradient(135deg,#fbbf24,#f97316)"></span>Flagged</div>
+              <div class="legend-item"><span class="legend-dot" style="background: #1e2246"></span>Unique</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="glass-card method-card">
+          <h3>Duplicates by Method</h3>
+          <div id="method-bars" class="method-bars">
+            <div class="empty-state-small">Run a session to see method breakdown.</div>
+          </div>
+        </div>
+
+        <div class="glass-card how-card">
+          <h3>How It Works</h3>
+          <ol class="how-list">
+            <li><span class="step-badge doi">1</span><div><strong>DOI Match</strong><br><small>Exact DOI comparison after normalization. Highest confidence.</small></div></li>
+            <li><span class="step-badge pmid">2</span><div><strong>PMID Match</strong><br><small>PubMed unique identifier match.</small></div></li>
+            <li><span class="step-badge exact">3</span><div><strong>Exact Title</strong><br><small>Normalized title string exact match (&gt;30 chars).</small></div></li>
+            <li><span class="step-badge fuzzy">4</span><div><strong>Fuzzy Title</strong><br><small>≥95% similarity, or ≥85% + year match.</small></div></li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Recent Sessions -->
+      <div class="glass-card recent-card">
+        <h3>Recent Sessions</h3>
+        <div id="recent-sessions-list">
+          <div class="empty-state-small">No sessions yet. Upload files to get started.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== TAB: UPLOAD & RUN ===== -->
+    <div class="tab-panel" id="tab-upload">
+      <div class="page-header">
+        <h1>Upload &amp; Run</h1>
+        <p>Drop your exported bibliographic files below. Supported: <code>.txt</code> <code>.nbib</code> <code>.ris</code> <code>.bib</code> <code>.csv</code> <code>.ciw</code> <code>.enw</code></p>
+      </div>
+
+      <div class="upload-zone" id="upload-zone" role="button" tabindex="0" aria-label="Drop zone for bibliographic files">
+        <div class="upload-icon-wrap">
+          <svg width="52" height="52" fill="none" viewBox="0 0 24 24" stroke="url(#upload-grad)">
+            <defs>
+              <linearGradient id="upload-grad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#60a5fa"/>
+                <stop offset="100%" stop-color="#a78bfa"/>
+              </linearGradient>
+            </defs>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+          </svg>
+        </div>
+        <p class="upload-label">Drag &amp; drop files here, or <span class="upload-browse">browse</span></p>
+        <p class="upload-sublabel">PubMed, Embase, Cochrane, Scopus, Web of Science and more</p>
+        <input type="file" id="file-input" multiple accept=".txt,.bib,.ris,.csv,.nbib,.ciw,.enw" hidden />
+      </div>
+
+      <!-- File Queue -->
+      <div class="file-queue" id="file-queue"></div>
+
+      <!-- Session Name -->
+      <div class="glass-card run-card">
+        <div class="run-options">
+          <div class="form-field">
+            <label for="session-name">Session Name</label>
+            <input type="text" id="session-name" placeholder="e.g., Obesity Spine Review – March 2026" />
+          </div>
+          <div class="form-field">
+            <label for="fuzzy-threshold">Fuzzy Threshold (%)</label>
+            <input type="number" id="fuzzy-threshold" value="95" min="80" max="100" step="1" />
+          </div>
+          <div class="form-field">
+            <label for="year-threshold">Year+Fuzzy Threshold (%)</label>
+            <input type="number" id="year-threshold" value="85" min="70" max="100" step="1" />
+          </div>
+        </div>
+        <button class="btn-run" id="btn-run" disabled>
+          <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Run Deduplication
+        </button>
+      </div>
+
+      <!-- Progress Panel -->
+      <div class="progress-panel" id="progress-panel" hidden>
+        <div class="glass-card">
+          <h3 class="progress-title">Processing…</h3>
+          <div class="progress-bar-wrap">
+            <div class="progress-bar" id="progress-bar"></div>
+          </div>
+          <div class="progress-log" id="progress-log"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== TAB: RESULTS ===== -->
+    <div class="tab-panel" id="tab-results">
+      <div class="page-header">
+        <h1>Results</h1>
+        <p>Per-file breakdown from the most recent session.</p>
+      </div>
+
+      <div id="results-content">
+        <div class="empty-state">
+          <svg width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="#334166"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          <p>No results yet. Run a deduplication session first.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== TAB: AUDIT LOG ===== -->
+    <div class="tab-panel" id="tab-audit">
+      <div class="page-header">
+        <h1>Audit Log</h1>
+        <p>Full decision log with confidence scores and match methods.</p>
+      </div>
+
+      <div class="audit-toolbar">
+        <div class="search-wrap">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <input type="search" id="audit-search" placeholder="Search titles, methods…" />
+        </div>
+        <div class="filter-group">
+          <button class="filter-btn active" data-filter="all" id="filter-all">All</button>
+          <button class="filter-btn" data-filter="removed" id="filter-removed">Removed</button>
+          <button class="filter-btn" data-filter="kept" id="filter-kept">Kept</button>
+          <button class="filter-btn" data-filter="flagged" id="filter-flagged">Flagged</button>
+        </div>
+        <button class="btn-export" id="btn-export-audit" disabled>
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          Export JSON
+        </button>
+      </div>
+
+      <div class="glass-card">
+        <div class="audit-table-wrap">
+          <table class="audit-table" id="audit-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Action</th>
+                <th>Method</th>
+                <th>Confidence</th>
+                <th>Title</th>
+                <th>Source File</th>
+              </tr>
+            </thead>
+            <tbody id="audit-tbody">
+              <tr><td colspan="6" class="empty-cell">No audit data. Run a session first.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="audit-pagination" id="audit-pagination"></div>
+      </div>
+    </div>
+
+    <!-- ===== TAB: HISTORY ===== -->
+    <div class="tab-panel" id="tab-history">
+      <div class="page-header">
+        <h1>Session History</h1>
+        <p>All deduplication runs saved to Firebase.</p>
+      </div>
+
+      <div id="history-content">
+        <div class="empty-state">
+          <svg width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="#334166"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <p>Sign in to view your session history.</p>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ===== TOAST ===== -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

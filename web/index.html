@@ -11,8 +11,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
 
-  <!-- Firebase SDK -->
-  <script type="module" src="firebase-config.js"></script>
 
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -67,14 +65,12 @@
 
     <div class="sidebar-footer">
       <div class="user-badge" id="user-badge">
-        <div class="user-avatar" id="user-avatar">G</div>
+        <div class="user-avatar">G</div>
         <div class="user-info">
-          <span class="user-name" id="user-name">Guest</span>
-          <span class="user-status" id="user-status">Local mode</span>
+          <span class="user-name">Guest Mode</span>
+          <span class="user-status">Local data only</span>
         </div>
       </div>
-      <span class="storage-badge local" id="storage-mode-badge">💾 Local</span>
-      <button class="btn-auth" id="btn-auth">Sign in with Google</button>
     </div>
   </aside>
 
@@ -324,13 +320,13 @@
     <div class="tab-panel" id="tab-history">
       <div class="page-header">
         <h1>Session History</h1>
-        <p>Your recent deduplication sessions — saved locally in this browser. Sign in to sync across devices.</p>
+        <p>Your recent deduplication sessions — saved locally in this browser.</p>
       </div>
 
       <div id="history-content">
         <div class="empty-state">
           <svg width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="#334166"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          <p>Sign in to view your session history.</p>
+          <p>No sessions yet. Run a deduplication to see history here!</p>
         </div>
       </div>
     </div>

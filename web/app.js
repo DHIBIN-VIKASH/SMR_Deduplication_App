@@ -12,11 +12,12 @@ import {
    ❶  STATE
 ═══════════════════════════════════════════════════ */
 const state = {
-  files: [],           // File objects queued for processing
-  auditLog: [],        // Full decision log from last run
-  results: null,       // Summary object from last run
-  user: null,          // Firebase user (or null)
-  history: [],         // Sessions loaded from Firestore
+  files: [],                // File objects queued for processing
+  auditLog: [],             // Full decision log from last run
+  results: null,            // Summary object from last run
+  deduplicatedRecords: [],  // [{name, format, records:[]}] — for download
+  user: null,               // Firebase user (or null)
+  history: [],              // Sessions loaded from Firestore
   auditPage: 1,
   auditFilter: "all",
   auditSearch: "",
@@ -439,6 +440,7 @@ async function runDeduplication() {
 
   setStatus("running", "Processing…");
   btnRun.disabled = true;
+  state.deduplicatedRecords = []; // reset for new run
 
   const progressPanel = $("progress-panel");
   const progressBar   = $("progress-bar");
@@ -485,6 +487,7 @@ async function runDeduplication() {
 
     allFlagged.push(...flagged);
     fileResults.push({ name, format: label, total: records.length, unique: localUnique.length, removed: skipped, flagged: flagged.length });
+    state.deduplicatedRecords.push({ name, format: label, records: localUnique });
 
     step++;
     progressBar.style.width = `${Math.round((step / fileData.length) * 100)}%`;
@@ -509,6 +512,8 @@ async function runDeduplication() {
     totalInput, totalUnique, totalRemoved, totalFlagged,
     methodCounts, flagged: allFlagged, fileResults
   };
+  // Reset deduped records list (was populated during per-file loop above)
+  // state.deduplicatedRecords already populated above
 
   progressBar.style.width = "100%";
   log(`✅ Done! ${totalInput} in → ${totalUnique} unique, ${totalRemoved} removed, ${totalFlagged} flagged.`, "success");
@@ -533,6 +538,116 @@ async function runDeduplication() {
 /* ═══════════════════════════════════════════════════
    ❼  RENDER RESULTS TAB
 ═══════════════════════════════════════════════════ */
+/* ─── Reconstruct file content from records ─────── */
+function reconstructContent(records, format) {
+  if (format === "PubMed") {
+    return records.map(r => r.originalText.trim()).join("\n\n");
+  }
+  if (format === "BibTeX") {
+    return records.map(r => r.originalText.trim()).join("\n\n");
+  }
+  if (format === "RIS") {
+    return records.map(r => {
+      let t = r.originalText.trim();
+      if (!t.endsWith("ER  -")) t += "\nER  -";
+      return t;
+    }).join("\n\n");
+  }
+  if (format === "CSV" || format === "WoS-Tab") {
+    if (!records.length) return "";
+    const headers = Object.keys(records[0].extraData);
+    const escape = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const rows = records.map(r => headers.map(h => escape(r.extraData[h])).join(","));
+    return [headers.map(escape).join(","), ...rows].join("\n");
+  }
+  return records.map(r => r.originalText).join("\n\n");
+}
+
+/* ─── Build a merged RIS from all unique records ── */
+function buildMergedRis(deduplicatedRecords) {
+  const lines = [];
+  for (const { name, format, records } of deduplicatedRecords) {
+    const dbLabel = name.replace(/\.[^.]+$/, ""); // strip extension
+    for (const r of records) {
+      // Start with original text
+      let entry = r.originalText.trim();
+
+      // Convert non-RIS formats to a minimal RIS block
+      if (format === "PubMed") {
+        entry = convertPubMedToRis(r, dbLabel);
+      } else if (format === "BibTeX") {
+        entry = convertBibToRis(r, dbLabel);
+      } else if (format === "CSV" || format === "WoS-Tab") {
+        entry = convertCsvToRis(r, dbLabel);
+      } else {
+        // RIS — inject DB source tag before ER
+        entry = entry.replace(/(ER\s+-\s*$)/m, `DB  - ${dbLabel}\n$1`);
+        if (!entry.includes("DB  -")) entry += `\nDB  - ${dbLabel}\nER  -`;
+        if (!entry.endsWith("ER  -")) entry += "\nER  -";
+      }
+      lines.push(entry);
+    }
+  }
+  return lines.join("\n\n");
+}
+
+function convertPubMedToRis(r, db) {
+  const parts = ["TY  - JOUR"];
+  if (r.title)   parts.push(`TI  - ${r.title}`);
+  if (r.doi)     parts.push(`DO  - ${r.doi}`);
+  if (r.pmid)    parts.push(`AN  - ${r.pmid}`);
+  if (r.year)    parts.push(`PY  - ${r.year}`);
+  r.authors.forEach(a => parts.push(`AU  - ${a}`));
+  parts.push(`DB  - ${db}`);
+  parts.push("ER  -");
+  return parts.join("\n");
+}
+
+function convertBibToRis(r, db) {
+  const parts = ["TY  - JOUR"];
+  if (r.title)   parts.push(`TI  - ${r.title}`);
+  if (r.doi)     parts.push(`DO  - ${r.doi}`);
+  if (r.year)    parts.push(`PY  - ${r.year}`);
+  r.authors.forEach(a => parts.push(`AU  - ${a}`));
+  parts.push(`DB  - ${db}`);
+  parts.push("ER  -");
+  return parts.join("\n");
+}
+
+function convertCsvToRis(r, db) {
+  const parts = ["TY  - JOUR"];
+  if (r.title)   parts.push(`TI  - ${r.title}`);
+  if (r.doi)     parts.push(`DO  - ${r.doi}`);
+  if (r.pmid)    parts.push(`AN  - ${r.pmid}`);
+  if (r.year)    parts.push(`PY  - ${r.year}`);
+  r.authors.forEach(a => parts.push(`AU  - ${a}`));
+  parts.push(`DB  - ${db}`);
+  parts.push("ER  -");
+  return parts.join("\n");
+}
+
+/* ─── Build merged CSV ───────────────────────────── */
+function buildMergedCsv(deduplicatedRecords) {
+  const allRows = [];
+  for (const { name, records } of deduplicatedRecords) {
+    const db = name.replace(/\.[^.]+$/, "");
+    for (const r of records) {
+      allRows.push({
+        Title:   r.title || "",
+        Authors: r.authors.join("; "),
+        Year:    r.year || "",
+        DOI:     r.doi || "",
+        PMID:    r.pmid || "",
+        Source:  db
+      });
+    }
+  }
+  if (!allRows.length) return "";
+  const headers = Object.keys(allRows[0]);
+  const escape = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  return [headers.join(","), ...allRows.map(row => headers.map(h => escape(row[h])).join(","))].join("\n");
+}
+
 function renderResults() {
   const r = state.results;
   if (!r) return;
@@ -549,7 +664,37 @@ function renderResults() {
       <div class="result-mini"><span class="rval">${rate}%</span><span class="rlabel">Dedup Rate</span></div>
     </div>
 
-    <div class="file-results-grid" id="file-results-grid"></div>
+    <!-- ★ PRIMARY: Merged download panel ★ -->
+    <div class="glass-card merged-download-card">
+      <div class="merged-header">
+        <div>
+          <h3 style="margin-bottom:4px">⬇️ Download Merged File</h3>
+          <p style="margin:0">All <strong>${r.totalUnique.toLocaleString()} unique records</strong> from all databases combined into one file — ready to import into Rayyan, Covidence, or Endnote for screening.</p>
+        </div>
+      </div>
+      <div class="merged-tip">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <span>Each record includes a <code>DB</code> field with its source database name so you can still trace origins after screening.</span>
+      </div>
+      <div class="merged-actions">
+        <button class="btn-download-merged ris" id="btn-dl-merged-ris">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          Download as RIS
+          <span class="fmt-badge">Recommended · works with Rayyan &amp; Covidence</span>
+        </button>
+        <button class="btn-download-merged csv" id="btn-dl-merged-csv">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          Download as CSV
+          <span class="fmt-badge">Excel / Sheets compatible</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Per-file breakdown -->
+    <div class="glass-card" style="margin-bottom:16px">
+      <h3>Per-File Breakdown</h3>
+      <div class="file-results-grid" id="file-results-grid"></div>
+    </div>
 
     ${r.flagged.length > 0 ? `
     <div class="glass-card flagged-panel">
@@ -567,9 +712,22 @@ function renderResults() {
     </div>` : ""}
   `;
 
+  // Wire merged download buttons
+  $("btn-dl-merged-ris").addEventListener("click", () => {
+    const content = buildMergedRis(state.deduplicatedRecords);
+    downloadFile(content, "text/plain", `${r.sessionName.replace(/[^a-z0-9]/gi,"_")}_deduplicated_merged.ris`);
+    toast("📥 Merged RIS downloaded — import into your screener!", "success");
+  });
+
+  $("btn-dl-merged-csv").addEventListener("click", () => {
+    const content = buildMergedCsv(state.deduplicatedRecords);
+    downloadFile(content, "text/csv", `${r.sessionName.replace(/[^a-z0-9]/gi,"_")}_deduplicated_merged.csv`);
+    toast("📥 Merged CSV downloaded!", "success");
+  });
+
   // Render per-file cards
   const grid = $("file-results-grid");
-  r.fileResults.forEach(fr => {
+  r.fileResults.forEach((fr, idx) => {
     const pct = fr.total > 0 ? (fr.unique / fr.total) * 100 : 0;
     const card = document.createElement("div");
     card.className = "file-result-card";
@@ -587,8 +745,25 @@ function renderResults() {
         <span class="frc-stat"><strong>${fr.unique}</strong> kept</span>
         <span class="frc-stat"><strong>${fr.removed}</strong> removed</span>
         ${fr.flagged > 0 ? `<span class="frc-stat"><strong>${fr.flagged}</strong> flagged</span>` : ""}
-      </div>`;
+      </div>
+      <button class="btn-dl-file" data-idx="${idx}" title="Download deduplicated ${fr.name}">
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+        Download
+      </button>`;
     grid.appendChild(card);
+  });
+
+  // Wire per-file download buttons
+  document.querySelectorAll(".btn-dl-file").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const idx = +btn.dataset.idx;
+      const { name, format, records } = state.deduplicatedRecords[idx];
+      const content = reconstructContent(records, format);
+      const outName = name.replace(/(\.[^.]+)$/, "_deduplicated$1");
+      const mime = (format === "CSV" || format === "WoS-Tab") ? "text/csv" : "text/plain";
+      downloadFile(content, mime, outName);
+      toast(`📥 ${outName} downloaded!`, "success");
+    });
   });
 
   // Animate bars
@@ -967,6 +1142,14 @@ function animateCounter(el, target) {
 
 function downloadJson(obj, filename) {
   const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadFile(content, mime, filename) {
+  const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = filename; a.click();

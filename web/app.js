@@ -491,43 +491,35 @@ async function runDeduplication() {
     transferBuffers   // ownership transferred — no blocking copy
   );
 
-  // ── Smooth progress bar animator ───────────────────────────────────────
-  // The Worker posts discrete events, but between them the bar would sit
-  // completely still. This RAF loop drifts the bar forward continuously,
-  // decelerating toward a ceiling that the Worker moves up in real time.
-  let rafId = null;
-  let smoothPct  = 5;   // current displayed %
-  let ceilingPct = 10;  // max we allow before next worker update
-  let rafFrame   = 0;   // frame counter for DOM throttle
+  // ── Simple progress bar animator ──────────────────────────────────────
+  // RAF at 60fps causes layout pressure even when throttled.
+  // setInterval at 150ms is perfectly smooth for a loading bar and
+  // is completely non-blocking — no impact on clicks or navigation.
+  let timerId    = null;
+  let smoothPct  = 5;
+  let ceilingPct = 10;
 
   progressBar.classList.add("processing");
+  progressBar.style.width = "5%";
 
-  function tickProgress() {
-    rafFrame++;
-    // Only write to DOM every 3rd frame (~20fps) to avoid layout thrashing.
-    // The math still runs every frame for accuracy.
+  timerId = setInterval(() => {
     const gap = ceilingPct - smoothPct;
-    smoothPct += Math.max(gap * 0.012, 0.03);
+    smoothPct += Math.max(gap * 0.15, 0.5);  // eased step toward ceiling
     smoothPct  = Math.min(smoothPct, ceilingPct);
-    if (rafFrame % 3 === 0) {
-      progressBar.style.width = smoothPct.toFixed(1) + "%";
-    }
-    rafId = requestAnimationFrame(tickProgress);
-  }
+    progressBar.style.width = smoothPct.toFixed(1) + "%";
+  }, 150);
 
   function advanceCeiling(reportedPct) {
     if (reportedPct > ceilingPct) ceilingPct = Math.min(reportedPct, 97);
   }
 
   function finishProgress() {
-    cancelAnimationFrame(rafId);
-    rafId = null;
+    clearInterval(timerId);
+    timerId = null;
     progressBar.classList.remove("processing");
     progressBar.style.width = "100%";
   }
-
-  rafId = requestAnimationFrame(tickProgress);
-  // ───────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
 
   worker.onmessage = async (e) => {
     const msg = e.data;

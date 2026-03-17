@@ -457,83 +457,71 @@ async function runDeduplication() {
     progressLog.scrollTop = progressLog.scrollHeight;
   };
 
-  const auditLog = [];
-  const masterSeenDois   = new Set();
-  const masterSeenTitles = new Set();
-  const masterUniqueList = [];
-  const allFlagged = [];
-  const fileResults = [];
-  const fileRecordCounts = {};
+  log("Reading files…");
 
-  log("Starting deduplication…");
-
-  // Read all files
-  const fileData = await Promise.all(
-    state.files.map(f => readFileAsync(f).then(content => ({ name: f.name, content })))
-  );
-
-  // Process
-  let step = 0;
-  for (const { name, content } of fileData) {
-    const { records, label } = detectAndParse(content, name);
-    if (!label) { log(`⚠ Could not detect format: ${name}`, "warn"); continue; }
-
-    fileRecordCounts[name] = records.length;
-    log(`📄 ${name} — ${records.length} records (${label})`);
-
-    const { localUnique, flagged, skipped } = processFile(
-      records, masterSeenDois, masterSeenTitles, masterUniqueList, auditLog, fuzzyThreshold, yearThreshold
+  // ① Read files on main thread (FileReader is not available in Workers)
+  let fileData;
+  try {
+    fileData = await Promise.all(
+      state.files.map(f => readFileAsync(f).then(content => ({ name: f.name, content })))
     );
-
-    allFlagged.push(...flagged);
-    fileResults.push({ name, format: label, total: records.length, unique: localUnique.length, removed: skipped, flagged: flagged.length });
-    state.deduplicatedRecords.push({ name, format: label, records: localUnique });
-
-    step++;
-    progressBar.style.width = `${Math.round((step / fileData.length) * 100)}%`;
-    await sleep(30); // Allow UI to breathe
+  } catch(e) {
+    log("❌ Error reading files: " + e.message, "error");
+    setStatus("error", "Error"); btnRun.disabled = false; return;
   }
 
-  // Summary
-  const totalInput   = Object.values(fileRecordCounts).reduce((a, b) => a + b, 0);
-  const totalUnique  = fileResults.reduce((a, r) => a + r.unique, 0);
-  const totalRemoved = auditLog.filter(e => e.action === "removed").length;
-  const totalFlagged = auditLog.filter(e => e.action === "flagged_retained").length;
+  log(`Sending ${fileData.length} file(s) to background worker…`);
+  progressBar.style.width = "5%";
 
-  const methodCounts = {};
-  auditLog.filter(e => e.action === "removed").forEach(e => {
-    methodCounts[e.method] = (methodCounts[e.method] || 0) + 1;
-  });
+  // ② Offload ALL computation to a Web Worker.
+  //    The main thread stays completely free — tab switching, animations,
+  //    button clicks all work normally while dedup runs in the background.
+  const worker = new Worker("dedup-worker.js");
+  worker.postMessage({ fileData, fuzzyThreshold, yearThreshold });
 
-  state.auditLog = auditLog;
-  state.results = {
-    sessionName,
-    timestamp: new Date().toISOString(),
-    totalInput, totalUnique, totalRemoved, totalFlagged,
-    methodCounts, flagged: allFlagged, fileResults
+  worker.onmessage = async (e) => {
+    const msg = e.data;
+
+    if (msg.type === "log" || msg.type === "progress") {
+      if (msg.msg) log(msg.msg, msg.level || "");
+      if (msg.progress != null)
+        progressBar.style.width = Math.max(5, Math.min(98, msg.progress)).toFixed(1) + "%";
+    }
+
+    if (msg.type === "done") {
+      worker.terminate();
+
+      state.auditLog            = msg.auditLog;
+      state.deduplicatedRecords = msg.deduplicatedRecords;
+      state.results             = { sessionName, timestamp: new Date().toISOString(), ...msg.results };
+
+      progressBar.style.width = "100%";
+      const r = state.results;
+      log(`✅ Done! ${r.totalInput} in → ${r.totalUnique} unique, ${r.totalRemoved} removed, ${r.totalFlagged} flagged.`, "success");
+
+      setStatus("ready", "Complete");
+      btnRun.disabled = false;
+      toast("✅ Deduplication complete!", "success");
+
+      updateDashboard();
+      renderResults();
+      renderAuditTable();
+      $("btn-export-audit").disabled = false;
+
+      await saveSession(state.results);
+      setTimeout(() => switchTab("results"), 800);
+    }
   };
-  // Reset deduped records list (was populated during per-file loop above)
-  // state.deduplicatedRecords already populated above
 
-  progressBar.style.width = "100%";
-  log(`✅ Done! ${totalInput} in → ${totalUnique} unique, ${totalRemoved} removed, ${totalFlagged} flagged.`, "success");
-
-  setStatus("ready", "Complete");
-  btnRun.disabled = false;
-  toast("✅ Deduplication complete!", "success");
-
-  // Update UI
-  updateDashboard();
-  renderResults();
-  renderAuditTable();
-  $("btn-export-audit").disabled = false;
-
-  // Persist to Firebase
-  await saveSession(state.results);
-
-  // Switch to results tab after short delay
-  setTimeout(() => switchTab("results"), 800);
+  worker.onerror = (e) => {
+    worker.terminate();
+    log("❌ Worker error: " + e.message, "error");
+    setStatus("error", "Error");
+    btnRun.disabled = false;
+    toast("❌ Worker error — check console.", "error");
+  };
 }
+
 
 /* ═══════════════════════════════════════════════════
    ❼  RENDER RESULTS TAB

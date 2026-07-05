@@ -251,15 +251,17 @@ function parseBib(content, filename) {
   const records = [];
   const entries = content.match(/@\w+\s*\{[\s\S]*?\n\}/g) || [];
   for (const entry of entries) {
-    const titleM  = entry.match(/title\s*=\s*[\{"]([\s\S]*?)["}\],]/i);
-    const doiM    = entry.match(/doi\s*=\s*[\{"](.*?)["}\],]/i);
-    const yearM   = entry.match(/year\s*=\s*[\{"]?(\d{4})/i);
-    const authorM = entry.match(/author\s*=\s*[\{"]([\s\S]*?)["}\],]/i);
-    const abstractM = entry.match(/abstract\s*=\s*\{((?:[^{}]|\{[^{}]*\})*)\}/i) ||
-                      entry.match(/abstract\s*=\s*"([\s\S]*?)"/i);
+    // Match {…} (one nesting level) or "…". A char class truncates any value
+    // containing a comma or closing brace (titles with commas, "Last, First"
+    // authors, long abstracts), so use these balanced matchers.
+    const titleM    = entry.match(/title\s*=\s*\{((?:[^{}]|\{[^{}]*\})*)\}/i)    || entry.match(/title\s*=\s*"([\s\S]*?)"/i);
+    const doiM      = entry.match(/doi\s*=\s*[\{"](.*?)["}\],]/i);
+    const yearM     = entry.match(/year\s*=\s*[\{"]?(\d{4})/i);
+    const authorM   = entry.match(/author\s*=\s*\{((?:[^{}]|\{[^{}]*\})*)\}/i)   || entry.match(/author\s*=\s*"([\s\S]*?)"/i);
+    const abstractM = entry.match(/abstract\s*=\s*\{((?:[^{}]|\{[^{}]*\})*)\}/i) || entry.match(/abstract\s*=\s*"([\s\S]*?)"/i);
 
-    let title = titleM ? titleM[1].replace(/[\{\}]/g, "").trim() : "";
-    const authors = authorM ? authorM[1].split(/ and /i).map(a => a.trim()) : [];
+    let title = titleM ? titleM[1].replace(/\s+/g, " ").replace(/[\{\}]/g, "").trim() : "";
+    const authors = authorM ? authorM[1].replace(/[\{\}]/g, "").split(/ and /i).map(a => a.trim()).filter(Boolean) : [];
     const abstract = abstractM ? abstractM[1].replace(/\s+/g, " ").replace(/[\{\}]/g, "").trim() : "";
 
     records.push(new Record({

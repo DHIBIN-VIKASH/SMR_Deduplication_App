@@ -224,10 +224,13 @@ function parsePubMed(content, filename) {
     if (!block.trim()) continue;
     const pmidM  = block.match(/^PMID- (.*)/m);
     const doiM   = block.match(/^LID - (.*) \[doi\]/m) || block.match(/^AID - (.*) \[doi\]/m);
-    const titleM = block.match(/^TI  - ([\s\S]*?)(?=\n[A-Z]{2,4} - |\n\n|$)/m);
+    // MEDLINE wraps long values onto indented continuation lines. Capture the
+    // first line plus every following whitespace-indented line. (A `$` anchor
+    // under /m matches the end of *every* line and truncates to line 1.)
+    const titleM = block.match(/^TI\s*-\s+(.*(?:\n[^\S\n].*)*)/m);
     const yearM  = block.match(/^DP  - (\d{4})/m);
     const authors = [...block.matchAll(/^FAU - (.*)/gm)].map(m => m[1]);
-    const abstractM = block.match(/^AB  - ([\s\S]*?)(?=\n[A-Z]{2,4}\s*- |\n\n|$)/m);
+    const abstractM = block.match(/^AB\s*-\s+(.*(?:\n[^\S\n].*)*)/m);
 
     let title = "";
     if (titleM) title = titleM[1].split("\n").map(l => l.trim()).join(" ");
@@ -285,7 +288,9 @@ function parseRis(content, filename) {
     const doiM    = entry.match(/^DO\s+-\s+(.*)/m);
     const yearM   = entry.match(/^(?:PY|Y1)\s+-\s+(\d{4})/m);
     const authors = [...entry.matchAll(/^AU\s+-\s+(.*)/gm)].map(m => m[1].trim());
-    const abstractM = entry.match(/^(?:AB|N2)\s+-\s+([\s\S]*?)(?=\n[A-Z0-9]{2}\s+-\s|\n?$)/m);
+    // Capture the AB/N2 value plus any continuation lines (RIS wraps without
+    // indentation), stopping at the next tag, a blank line, or end of entry.
+    const abstractM = entry.match(/^(?:AB|N2)\s+-\s+(.*(?:\n(?![A-Z][A-Z0-9]\s{0,3}-\s)(?=.).*)*)/m);
     const abstract = abstractM ? abstractM[1].split("\n").map(l => l.trim()).join(" ").trim() : "";
 
     records.push(new Record({

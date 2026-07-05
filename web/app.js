@@ -180,7 +180,7 @@ function lcsRatio(s1, s2) {
 }
 
 class Record {
-  constructor({ sourceFile, originalText, pmid, doi, title, authors, year, extraData, format }) {
+  constructor({ sourceFile, originalText, pmid, doi, title, authors, year, abstract, extraData, format }) {
     this.sourceFile    = sourceFile;
     this.originalText  = originalText;
     this.pmid          = pmid && String(pmid).trim() && String(pmid).toLowerCase() !== "nan"
@@ -191,6 +191,7 @@ class Record {
     this.authors       = Array.isArray(authors) ? authors.map(String) : (authors ? [String(authors)] : []);
     this.year          = year && String(year).trim() && String(year).toLowerCase() !== "nan"
                           ? String(year).trim() : null;
+    this.abstract      = abstract && String(abstract).toLowerCase() !== "nan" ? String(abstract).trim() : "";
     this.extraData     = extraData || {};
     this.format        = format || "Unknown";
   }
@@ -226,9 +227,12 @@ function parsePubMed(content, filename) {
     const titleM = block.match(/^TI  - ([\s\S]*?)(?=\n[A-Z]{2,4} - |\n\n|$)/m);
     const yearM  = block.match(/^DP  - (\d{4})/m);
     const authors = [...block.matchAll(/^FAU - (.*)/gm)].map(m => m[1]);
+    const abstractM = block.match(/^AB  - ([\s\S]*?)(?=\n[A-Z]{2,4}\s*- |\n\n|$)/m);
 
     let title = "";
     if (titleM) title = titleM[1].split("\n").map(l => l.trim()).join(" ");
+    let abstract = "";
+    if (abstractM) abstract = abstractM[1].split("\n").map(l => l.trim()).join(" ");
 
     records.push(new Record({
       sourceFile: filename, originalText: block, format: "PubMed",
@@ -236,7 +240,8 @@ function parsePubMed(content, filename) {
       doi:  doiM?.[1]?.trim(),
       title,
       authors,
-      year: yearM?.[1]?.trim()
+      year: yearM?.[1]?.trim(),
+      abstract
     }));
   }
   return records;
@@ -250,16 +255,20 @@ function parseBib(content, filename) {
     const doiM    = entry.match(/doi\s*=\s*[\{"](.*?)["}\],]/i);
     const yearM   = entry.match(/year\s*=\s*[\{"]?(\d{4})/i);
     const authorM = entry.match(/author\s*=\s*[\{"]([\s\S]*?)["}\],]/i);
+    const abstractM = entry.match(/abstract\s*=\s*\{((?:[^{}]|\{[^{}]*\})*)\}/i) ||
+                      entry.match(/abstract\s*=\s*"([\s\S]*?)"/i);
 
     let title = titleM ? titleM[1].replace(/[\{\}]/g, "").trim() : "";
     const authors = authorM ? authorM[1].split(/ and /i).map(a => a.trim()) : [];
+    const abstract = abstractM ? abstractM[1].replace(/\s+/g, " ").replace(/[\{\}]/g, "").trim() : "";
 
     records.push(new Record({
       sourceFile: filename, originalText: entry, format: "BibTeX",
       doi: doiM?.[1]?.trim(),
       title,
       authors,
-      year: yearM?.[1]?.trim()
+      year: yearM?.[1]?.trim(),
+      abstract
     }));
   }
   return records;
@@ -274,13 +283,16 @@ function parseRis(content, filename) {
     const doiM    = entry.match(/^DO\s+-\s+(.*)/m);
     const yearM   = entry.match(/^(?:PY|Y1)\s+-\s+(\d{4})/m);
     const authors = [...entry.matchAll(/^AU\s+-\s+(.*)/gm)].map(m => m[1].trim());
+    const abstractM = entry.match(/^(?:AB|N2)\s+-\s+([\s\S]*?)(?=\n[A-Z0-9]{2}\s+-\s|\n?$)/m);
+    const abstract = abstractM ? abstractM[1].split("\n").map(l => l.trim()).join(" ").trim() : "";
 
     records.push(new Record({
       sourceFile: filename, originalText: entry + "\nER  -", format: "RIS",
       doi: doiM?.[1]?.trim(),
       title: titleM?.[1]?.trim() || "",
       authors,
-      year: yearM?.[1]?.trim()
+      year: yearM?.[1]?.trim(),
+      abstract
     }));
   }
   return records;
@@ -322,6 +334,7 @@ function parseCsv(content, filename) {
     const pmidIdx   = col(["pmid", "pubmed id", "pm"]);
     const authorIdx = col(["author", "au", "contributor"]);
     const yearIdx   = col(["year", "py", "publication date"]);
+    const abstractIdx = col(["abstract", "ab"]);
 
     for (let i = 1; i < lines.length; i++) {
       if (!lines[i].trim()) continue;
@@ -336,6 +349,7 @@ function parseCsv(content, filename) {
         title:  titleIdx  >= 0 ? cols[titleIdx]  : "",
         authors: authorIdx >= 0 && cols[authorIdx] ? cols[authorIdx].split(";").map(a => a.trim()) : [],
         year:   yearIdx   >= 0 ? cols[yearIdx]   : null,
+        abstract: abstractIdx >= 0 ? cols[abstractIdx] : "",
         extraData: rowObj
       }));
     }
@@ -616,11 +630,12 @@ function buildMergedRis(deduplicatedRecords) {
 
 function convertPubMedToRis(r, db) {
   const parts = ["TY  - JOUR"];
-  if (r.title)   parts.push(`TI  - ${r.title}`);
-  if (r.doi)     parts.push(`DO  - ${r.doi}`);
-  if (r.pmid)    parts.push(`AN  - ${r.pmid}`);
-  if (r.year)    parts.push(`PY  - ${r.year}`);
+  if (r.title)    parts.push(`TI  - ${r.title}`);
+  if (r.doi)      parts.push(`DO  - ${r.doi}`);
+  if (r.pmid)     parts.push(`AN  - ${r.pmid}`);
+  if (r.year)     parts.push(`PY  - ${r.year}`);
   r.authors.forEach(a => parts.push(`AU  - ${a}`));
+  if (r.abstract) parts.push(`AB  - ${r.abstract}`);
   parts.push(`DB  - ${db}`);
   parts.push("ER  -");
   return parts.join("\n");
@@ -628,10 +643,11 @@ function convertPubMedToRis(r, db) {
 
 function convertBibToRis(r, db) {
   const parts = ["TY  - JOUR"];
-  if (r.title)   parts.push(`TI  - ${r.title}`);
-  if (r.doi)     parts.push(`DO  - ${r.doi}`);
-  if (r.year)    parts.push(`PY  - ${r.year}`);
+  if (r.title)    parts.push(`TI  - ${r.title}`);
+  if (r.doi)      parts.push(`DO  - ${r.doi}`);
+  if (r.year)     parts.push(`PY  - ${r.year}`);
   r.authors.forEach(a => parts.push(`AU  - ${a}`));
+  if (r.abstract) parts.push(`AB  - ${r.abstract}`);
   parts.push(`DB  - ${db}`);
   parts.push("ER  -");
   return parts.join("\n");
@@ -639,11 +655,12 @@ function convertBibToRis(r, db) {
 
 function convertCsvToRis(r, db) {
   const parts = ["TY  - JOUR"];
-  if (r.title)   parts.push(`TI  - ${r.title}`);
-  if (r.doi)     parts.push(`DO  - ${r.doi}`);
-  if (r.pmid)    parts.push(`AN  - ${r.pmid}`);
-  if (r.year)    parts.push(`PY  - ${r.year}`);
+  if (r.title)    parts.push(`TI  - ${r.title}`);
+  if (r.doi)      parts.push(`DO  - ${r.doi}`);
+  if (r.pmid)     parts.push(`AN  - ${r.pmid}`);
+  if (r.year)     parts.push(`PY  - ${r.year}`);
   r.authors.forEach(a => parts.push(`AU  - ${a}`));
+  if (r.abstract) parts.push(`AB  - ${r.abstract}`);
   parts.push(`DB  - ${db}`);
   parts.push("ER  -");
   return parts.join("\n");
@@ -656,12 +673,13 @@ function buildMergedCsv(deduplicatedRecords) {
     const db = name.replace(/\.[^.]+$/, "");
     for (const r of records) {
       allRows.push({
-        Title:   r.title || "",
-        Authors: r.authors.join("; "),
-        Year:    r.year || "",
-        DOI:     r.doi || "",
-        PMID:    r.pmid || "",
-        Source:  db
+        Title:    r.title || "",
+        Authors:  r.authors.join("; "),
+        Year:     r.year || "",
+        DOI:      r.doi || "",
+        PMID:     r.pmid || "",
+        Abstract: r.abstract || "",
+        Source:   db
       });
     }
   }
@@ -669,6 +687,42 @@ function buildMergedCsv(deduplicatedRecords) {
   const headers = Object.keys(allRows[0]);
   const escape = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
   return [headers.join(","), ...allRows.map(row => headers.map(h => escape(row[h])).join(","))].join("\n");
+}
+
+/* ─── Build merged BibTeX (LOSSLESS for .bib sources) ──
+   BibTeX inputs are emitted verbatim from originalText, so every field
+   (abstract, keywords, notes, etc.) is preserved exactly. Non-BibTeX
+   sources are converted to a minimal @article entry that still carries
+   the abstract. */
+function buildMergedBib(deduplicatedRecords) {
+  const entries = [];
+  let counter = 0;
+  for (const { name, format, records } of deduplicatedRecords) {
+    const db = name.replace(/\.[^.]+$/, "");
+    for (const r of records) {
+      counter++;
+      if (format === "BibTeX") {
+        entries.push(r.originalText.trim());   // verbatim — nothing lost
+      } else {
+        entries.push(convertToBib(r, db, counter));
+      }
+    }
+  }
+  return entries.join("\n\n");
+}
+
+function convertToBib(r, db, idx) {
+  const esc = v => String(v ?? "").replace(/[{}]/g, "");
+  const key = (r.doi ? r.doi.replace(/[^a-zA-Z0-9]/g, "") : `${db}_${idx}`);
+  const fields = [];
+  if (r.title)            fields.push(`  title = {${esc(r.title)}}`);
+  if (r.authors?.length)  fields.push(`  author = {${r.authors.map(esc).join(" and ")}}`);
+  if (r.year)             fields.push(`  year = {${esc(r.year)}}`);
+  if (r.doi)              fields.push(`  doi = {${esc(r.doi)}}`);
+  if (r.pmid)             fields.push(`  pmid = {${esc(r.pmid)}}`);
+  if (r.abstract)         fields.push(`  abstract = {${esc(r.abstract)}}`);
+  fields.push(`  source = {${esc(db)}}`);
+  return `@article{${key},\n${fields.join(",\n")}\n}`;
 }
 
 function renderResults() {
@@ -710,6 +764,11 @@ function renderResults() {
           Download as CSV
           <span class="fmt-badge">Excel / Sheets compatible</span>
         </button>
+        <button class="btn-download-merged bib" id="btn-dl-merged-bib">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          Download as BibTeX
+          <span class="fmt-badge">Lossless · keeps abstract &amp; all fields</span>
+        </button>
       </div>
     </div>
 
@@ -746,6 +805,12 @@ function renderResults() {
     const content = buildMergedCsv(state.deduplicatedRecords);
     downloadFile(content, "text/csv", `${r.sessionName.replace(/[^a-z0-9]/gi,"_")}_deduplicated_merged.csv`);
     toast("📥 Merged CSV downloaded!", "success");
+  });
+
+  $("btn-dl-merged-bib").addEventListener("click", () => {
+    const content = buildMergedBib(state.deduplicatedRecords);
+    downloadFile(content, "text/plain", `${r.sessionName.replace(/[^a-z0-9]/gi,"_")}_deduplicated_merged.bib`);
+    toast("📥 Merged BibTeX downloaded — abstract & all fields preserved!", "success");
   });
 
   // Render per-file cards

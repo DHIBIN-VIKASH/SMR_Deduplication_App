@@ -36,7 +36,7 @@ function titleSimilarity(a, b) {
 
 /* ─── Record ─────────────────────────────────────── */
 class Record {
-  constructor({ sourceFile, originalText, pmid, doi, title, authors, year, extraData, format }) {
+  constructor({ sourceFile, originalText, pmid, doi, title, authors, year, abstract, extraData, format }) {
     this.sourceFile      = sourceFile;
     this.originalText    = originalText;
     this.pmid            = pmid && String(pmid).trim() && String(pmid).toLowerCase() !== "nan" ? String(pmid).trim() : null;
@@ -45,6 +45,7 @@ class Record {
     this.normalizedTitle = normalizeText(this.title);
     this.authors         = Array.isArray(authors) ? authors.map(String) : (authors ? [String(authors)] : []);
     this.year            = year && String(year).trim() && String(year).toLowerCase() !== "nan" ? String(year).trim() : null;
+    this.abstract        = abstract && String(abstract).toLowerCase() !== "nan" ? String(abstract).trim() : "";
     this.extraData       = extraData || {};
     this.format          = format || "Unknown";
   }
@@ -78,11 +79,14 @@ function parsePubMed(content, filename) {
     const titleM = block.match(/^TI  - ([\s\S]*?)(?=\n[A-Z]{2,4} - |\n\n|$)/m);
     const yearM  = block.match(/^DP  - (\d{4})/m);
     const authors = [...block.matchAll(/^FAU - (.*)/gm)].map(m => m[1]);
+    const abstractM = block.match(/^AB  - ([\s\S]*?)(?=\n[A-Z]{2,4}\s*- |\n\n|$)/m);
     let title = "";
     if (titleM) title = titleM[1].split("\n").map(l => l.trim()).join(" ");
+    let abstract = "";
+    if (abstractM) abstract = abstractM[1].split("\n").map(l => l.trim()).join(" ");
     records.push(new Record({
       sourceFile: filename, originalText: block, format: "PubMed",
-      pmid: pmidM?.[1]?.trim(), doi: doiM?.[1]?.trim(), title, authors, year: yearM?.[1]?.trim()
+      pmid: pmidM?.[1]?.trim(), doi: doiM?.[1]?.trim(), title, authors, year: yearM?.[1]?.trim(), abstract
     }));
   }
   return records;
@@ -96,11 +100,15 @@ function parseBib(content, filename) {
     const doiM    = entry.match(/doi\s*=\s*[\{"](.*?)["}\],]/i);
     const yearM   = entry.match(/year\s*=\s*[\{"]?(\d{4})/i);
     const authorM = entry.match(/author\s*=\s*[\{"]([\s\S]*?)["}\],]/i);
+    // Abstract may contain commas/braces — match a balanced (one-level) brace group.
+    const abstractM = entry.match(/abstract\s*=\s*\{((?:[^{}]|\{[^{}]*\})*)\}/i) ||
+                      entry.match(/abstract\s*=\s*"([\s\S]*?)"/i);
     let title = titleM ? titleM[1].replace(/[\{\}]/g, "").trim() : "";
     const authors = authorM ? authorM[1].split(/ and /i).map(a => a.trim()) : [];
+    const abstract = abstractM ? abstractM[1].replace(/\s+/g, " ").replace(/[\{\}]/g, "").trim() : "";
     records.push(new Record({
       sourceFile: filename, originalText: entry, format: "BibTeX",
-      doi: doiM?.[1]?.trim(), title, authors, year: yearM?.[1]?.trim()
+      doi: doiM?.[1]?.trim(), title, authors, year: yearM?.[1]?.trim(), abstract
     }));
   }
   return records;
@@ -115,9 +123,11 @@ function parseRis(content, filename) {
     const doiM    = entry.match(/^DO\s+-\s+(.*)/m);
     const yearM   = entry.match(/^(?:PY|Y1)\s+-\s+(\d{4})/m);
     const authors = [...entry.matchAll(/^AU\s+-\s+(.*)/gm)].map(m => m[1].trim());
+    const abstractM = entry.match(/^(?:AB|N2)\s+-\s+([\s\S]*?)(?=\n[A-Z0-9]{2}\s+-\s|\n?$)/m);
+    const abstract = abstractM ? abstractM[1].split("\n").map(l => l.trim()).join(" ").trim() : "";
     records.push(new Record({
       sourceFile: filename, originalText: entry + "\nER  -", format: "RIS",
-      doi: doiM?.[1]?.trim(), title: titleM?.[1]?.trim() || "", authors, year: yearM?.[1]?.trim()
+      doi: doiM?.[1]?.trim(), title: titleM?.[1]?.trim() || "", authors, year: yearM?.[1]?.trim(), abstract
     }));
   }
   return records;
@@ -148,6 +158,7 @@ function parseCsv(content, filename) {
     const pmidIdx   = col(["pmid", "pubmed id", "pm"]);
     const authorIdx = col(["author", "au", "contributor"]);
     const yearIdx   = col(["year", "py", "publication date"]);
+    const abstractIdx = col(["abstract", "ab"]);
     for (let i = 1; i < lines.length; i++) {
       if (!lines[i].trim()) continue;
       const cols = parseLine(lines[i]);
@@ -160,6 +171,7 @@ function parseCsv(content, filename) {
         title:  titleIdx  >= 0 ? cols[titleIdx]  : "",
         authors: authorIdx >= 0 && cols[authorIdx] ? cols[authorIdx].split(";").map(a => a.trim()) : [],
         year:   yearIdx   >= 0 ? cols[yearIdx]   : null,
+        abstract: abstractIdx >= 0 ? cols[abstractIdx] : "",
         extraData: rowObj
       }));
     }
@@ -314,6 +326,7 @@ self.onmessage = function(e) {
         title:        r.title,
         authors:      r.authors,
         year:         r.year,
+        abstract:     r.abstract,
         format:       r.format,
         // extraData only for CSV (needed to reconstruct CSV output)
         extraData: (r.format === 'CSV' || r.format === 'WoS-Tab') ? r.extraData : undefined

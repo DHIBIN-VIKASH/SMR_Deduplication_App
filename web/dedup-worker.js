@@ -186,6 +186,10 @@ function parseCsv(content, filename) {
 }
 
 function detectAndParse(content, filename) {
+  // Normalize Windows/Mac line endings to \n. The parsers rely on \n-anchored
+  // patterns (continuation lines, block splits); a stray \r stops `.`-based
+  // matches early and truncates multi-line titles/abstracts.
+  content = content.replace(/\r\n?/g, "\n");
   const ext  = filename.slice(filename.lastIndexOf(".")).toLowerCase();
   const head = content.slice(0, 2048);
   if (head.includes("PMID-") || ext === ".nbib")    return { records: parsePubMed(content, filename), label: "PubMed" };

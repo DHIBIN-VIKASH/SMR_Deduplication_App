@@ -3,7 +3,7 @@
 
 // Bump on every deploy that touches dedup-worker.js so browsers fetch the
 // new worker instead of a cached copy (see the Worker instantiation below).
-const APP_VERSION = "2026.07.05-2";
+const APP_VERSION = "2026.07.05-3";
 
 
 /* ═══════════════════════════════════════════════════
@@ -371,6 +371,10 @@ function parseCsv(content, filename) {
 }
 
 function detectAndParse(content, filename) {
+  // Normalize Windows/Mac line endings to \n. The parsers rely on \n-anchored
+  // patterns (continuation lines, block splits); a stray \r stops `.`-based
+  // matches early and truncates multi-line titles/abstracts.
+  content = content.replace(/\r\n?/g, "\n");
   const ext  = filename.slice(filename.lastIndexOf(".")).toLowerCase();
   const head = content.slice(0, 2048);
 

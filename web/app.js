@@ -1,6 +1,10 @@
 // app.js – SMR Deduplication Agent – Main Application
 // Runs the hierarchical deduplication algorithm in-browser (Web Workers friendly).
 
+// Bump on every deploy that touches dedup-worker.js so browsers fetch the
+// new worker instead of a cached copy (see the Worker instantiation below).
+const APP_VERSION = "2026.07.05-2";
+
 
 /* ═══════════════════════════════════════════════════
    ❶  STATE
@@ -499,7 +503,10 @@ async function runDeduplication() {
     return { name, buf };
   });
 
-  const worker = new Worker("dedup-worker.js");
+  // Cache-bust the worker: browsers cache Worker scripts aggressively, so a
+  // plain "dedup-worker.js" can keep running an old version after a deploy.
+  // Bump APP_VERSION on every change to the worker/parsers.
+  const worker = new Worker(`dedup-worker.js?v=${APP_VERSION}`);
   worker.postMessage(
     { fileData: transferableFileData, fuzzyThreshold, yearThreshold },
     transferBuffers   // ownership transferred — no blocking copy

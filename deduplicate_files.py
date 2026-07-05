@@ -90,7 +90,9 @@ def parse_pubmed(filename):
         doi = re.search(r'^LID - (.*) \[doi\]', block, re.M) or \
               re.search(r'^AID - (.*) \[doi\]', block, re.M) or \
               re.search(r'^SO  - .*?doi: (.*?)\.', block, re.M)
-        title = re.search(r'^TI  - (.*?)(?=\n[A-Z]{2,4} - |\n\n|$)', block, re.S | re.M)
+        # Capture the TI value plus its indented continuation lines. A `$`
+        # under re.M matches end-of-line and would truncate to the first line.
+        title = re.search(r'^TI\s*-\s+(.*(?:\n[^\S\n].*)*)', block, re.M)
         year = re.search(r'^DP  - (\d{4})', block, re.M)
         authors = re.findall(r'^FAU - (.*)', block, re.M)
         

@@ -219,6 +219,45 @@ def parse_csv(filename):
         ))
     return records
 
+def parse_wos(filename):
+    """Web of Science 'plain text' tagged export (FN Clarivate / VR 1.0 header).
+    2-char tags, continuations indented, records terminated by a bare `ER` line.
+    NOT the tab-delimited variant — that stays with parse_csv."""
+    records = []
+    try:
+        with open(filename, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+    except Exception as e:
+        print(f"Error reading {filename}: {e}")
+        return []
+
+    def grab(block, pat):
+        m = re.search(pat, block, re.M)
+        return m.group(1) if m else ""
+    def join_cont(raw):
+        return " ".join(l.strip() for l in raw.split('\n')).strip()
+    def lines_cont(raw):
+        return [l.strip() for l in raw.split('\n') if l.strip()]
+
+    for block in re.split(r'\nER\s*?\n', content):
+        if not re.search(r'^PT ', block, re.M): continue
+        title = join_cont(grab(block, r'^TI (.*(?:\n {2,}.*)*)'))
+        doi   = grab(block, r'^DI (.*)').strip()
+        pmid  = grab(block, r'^PM (.*)').strip()
+        year  = grab(block, r'^PY (\d{4})').strip()
+        af    = lines_cont(grab(block, r'^AF (.*(?:\n {2,}.*)*)'))
+        au    = lines_cont(grab(block, r'^AU (.*(?:\n {2,}.*)*)'))
+        records.append(Record(
+            source_file=filename,
+            original_text=block.strip() + "\nER\n",
+            doi=doi or None,
+            pmid=pmid or None,
+            title=title,
+            authors=af if af else au,
+            year=year or None
+        ))
+    return records
+
 def detect_and_parse(filename):
     ext = os.path.splitext(filename)[1].lower()
     
@@ -227,6 +266,8 @@ def detect_and_parse(filename):
     
     if 'PMID-' in head or ext == '.nbib':
         return parse_pubmed(filename), "PubMed"
+    elif 'FN ' in head and 'VR ' in head:  # WoS tagged plain-text (Clarivate); precede PT/AU check
+        return parse_wos(filename), "WoS"
     elif '@' in head and '{' in head:
         return parse_bib(filename), "BibTeX"
     elif 'TY  -' in head or 'ER  -' in head or ext == '.ris':

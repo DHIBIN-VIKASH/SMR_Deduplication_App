@@ -3,7 +3,7 @@
 
 // Bump on every deploy that touches dedup-worker.js so browsers fetch the
 // new worker instead of a cached copy (see the Worker instantiation below).
-const APP_VERSION = "2026.07.05-3";
+const APP_VERSION = "2026.07.06-1";
 
 
 /* ═══════════════════════════════════════════════════
@@ -370,6 +370,35 @@ function parseCsv(content, filename) {
   return records;
 }
 
+// Web of Science "plain text" tagged export (FN Clarivate / VR 1.0 header).
+// NOT the tab-delimited variant — this is 2-char tags, values on the same line,
+// continuations indented 3 spaces, records terminated by a bare `ER` line.
+// (Previously misrouted to parseCsv, which turned every physical line into a
+// fake record — 268 records became ~8500.)
+function parseWos(content, filename) {
+  const records = [];
+  const blocks = content.split(/\nER\s*?\n/);
+  const grab   = (block, re) => { const m = block.match(re); return m ? m[1] : ""; };
+  const joinCont  = raw => raw.split("\n").map(l => l.trim()).join(" ").trim();
+  const linesCont = raw => raw.split("\n").map(l => l.trim()).filter(Boolean);
+  for (const block of blocks) {
+    if (!/^PT /m.test(block)) continue;
+    const title    = joinCont(grab(block, /^TI (.*(?:\n {2,}.*)*)/m));
+    const abstract = joinCont(grab(block, /^AB (.*(?:\n {2,}.*)*)/m));
+    const doi      = grab(block, /^DI (.*)/m).trim();
+    const pmid     = grab(block, /^PM (.*)/m).trim();
+    const year     = grab(block, /^PY (\d{4})/m).trim();
+    const afRaw    = grab(block, /^AF (.*(?:\n {2,}.*)*)/m);
+    const auRaw    = grab(block, /^AU (.*(?:\n {2,}.*)*)/m);
+    const authors  = linesCont(afRaw).length ? linesCont(afRaw) : linesCont(auRaw);
+    records.push(new Record({
+      sourceFile: filename, originalText: block.trim() + "\nER\n", format: "WoS",
+      pmid, doi, title, authors, year, abstract
+    }));
+  }
+  return records;
+}
+
 function detectAndParse(content, filename) {
   // Normalize Windows/Mac line endings to \n. The parsers rely on \n-anchored
   // patterns (continuation lines, block splits); a stray \r stops `.`-based
@@ -379,6 +408,9 @@ function detectAndParse(content, filename) {
   const head = content.slice(0, 2048);
 
   if (head.includes("PMID-") || ext === ".nbib")    return { records: parsePubMed(content, filename), label: "PubMed" };
+  // WoS tagged plain-text: Clarivate FN/VR header. Must precede the PT+AU check
+  // below (which is for the genuine tab-delimited WoS export) since both have PT/AU.
+  if (head.includes("FN ") && head.includes("VR "))  return { records: parseWos(content, filename),    label: "WoS" };
   if (head.includes("@") && head.includes("{"))      return { records: parseBib(content, filename),    label: "BibTeX" };
   if (head.includes("TY  -") || head.includes("ER  -") || ext === ".ris")
                                                      return { records: parseRis(content, filename),    label: "RIS" };
@@ -632,7 +664,7 @@ function buildMergedRis(deduplicatedRecords) {
         entry = convertPubMedToRis(r, dbLabel);
       } else if (format === "BibTeX") {
         entry = convertBibToRis(r, dbLabel);
-      } else if (format === "CSV" || format === "WoS-Tab") {
+      } else if (format === "CSV" || format === "WoS-Tab" || format === "WoS") {
         entry = convertCsvToRis(r, dbLabel);
       } else {
         // RIS — inject DB source tag before ER
